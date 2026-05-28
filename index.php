@@ -1,464 +1,437 @@
 <?php
-$pageTitle = 'Главная';
-require 'includes/header.php';
+session_start();
 
-// Получаем последние 3 заказа пользователя (если авторизован)
-$recentOrders = [];
-if (isLoggedIn()) {
-    $stmt = $pdo->prepare("
-        SELECT o.*, GROUP_CONCAT(v.name SEPARATOR ', ') as vehicles_list
-        FROM orders o 
-        LEFT JOIN order_items oi ON o.id = oi.order_id
-        LEFT JOIN vehicles v ON oi.vehicle_id = v.id
-        WHERE o.user_id = ? 
-        GROUP BY o.id
-        ORDER BY o.created_at DESC LIMIT 3
-    ");
-    $stmt->execute([$_SESSION['user_id']]);
-    $recentOrders = $stmt->fetchAll();
+// Выход из системы
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: index.php');
+    exit;
 }
 
-// Статистика для всех
-$totalOrders = $pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
-$completedOrders = $pdo->query("SELECT COUNT(*) FROM orders WHERE status = 'delivered'")->fetchColumn();
-$activeOrders = $pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('new', 'processing', 'on_way')")->fetchColumn();
-$totalVehicles = $pdo->query("SELECT SUM(stock) FROM vehicles WHERE is_active = 1")->fetchColumn();
-
-$statuses = [
-    'new' => ['label' => 'Новый', 'color' => '#0066CC', 'bg' => '#e8f0fe'],
-    'processing' => ['label' => 'В обработке', 'color' => '#ed6c02', 'bg' => '#fff4e5'],
-    'on_way' => ['label' => 'В пути', 'color' => '#2e7d32', 'bg' => '#e8f5e9'],
-    'delivered' => ['label' => 'Доставлен', 'color' => '#00897b', 'bg' => '#e0f2f1'],
-    'cancelled' => ['label' => 'Отменён', 'color' => '#d32f2f', 'bg' => '#ffebee']
-];
+// Проверяем, установлен ли ключ admin в сессии
+$is_admin = isset($_SESSION['admin']) && $_SESSION['admin'];
 ?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Банкетам.Нет - выбор площадки для банкета</title>
+  <!-- Подключение шрифта Oswald -->
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Новая цветовая схема: золотой, розово-золотистый, кремовый, насыщенно-красный, тёмно-зелёный */
+    :root {
+      --gold: #DAA520;
+      --rose-gold: #FFDAB9;
+      --cream: #FFFDD0;
+      --crimson: #DC143C;
+      --forest-green: #006400;
+    }
 
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap');
+    body {
+      font-family: 'Oswald', sans-serif;
+      background: linear-gradient(135deg, var(--forest-green) 0%, #003300 100%);
+      margin: 0;
+      padding: 0;
+      color: var(--cream);
+      min-height: 100vh;
+    }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+    /* Шапка сайта */
+    .header {
+      background: rgba(0, 40, 0, 0.95);
+      padding: 15px 0;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
 
-:root {
-    --primary: #0057B3;
-    --primary-dark: #003d82;
-    --primary-light: #eef4ff;
-    --primary-glow: rgba(0,87,179,0.08);
-    --text: #111827;
-    --text-light: #4b5563;
-    --text-muted: #9ca3af;
-    --bg: #ffffff;
-    --bg-light: #f9fafb;
-    --bg-card: #ffffff;
-    --border: #e5e7eb;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.02);
-    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.04);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.04);
-    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.05);
-    --radius: 24px;
-    --radius-md: 16px;
-    --radius-sm: 12px;
-    --transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
-}
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
 
-body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    color: var(--text);
-    background: var(--bg);
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-}
+    .logo {
+      color: var(--gold);
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-decoration: none;
+      text-shadow: 0 0 10px rgba(218, 165, 32, 0.5);
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+    }
 
-.container { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+    .logo:hover {
+      color: var(--rose-gold);
+      text-shadow: 0 0 15px rgba(255, 218, 185, 0.8);
+    }
 
-/* Hero */
-.hero {
-    text-align: center;
-    padding: 64px 24px;
-    background: linear-gradient(145deg, var(--bg-light) 0%, var(--bg) 100%);
-    border-radius: var(--radius);
-    margin-bottom: 56px;
-    border: 1px solid var(--border);
-}
+    .nav-buttons a {
+      margin-left: 15px;
+      padding: 10px 20px;
+      border: 2px solid var(--gold);
+      border-radius: 25px;
+      color: var(--gold);
+      text-decoration: none;
+      transition: all 0.3s ease;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
 
-.hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--primary-light);
-    color: var(--primary);
-    font-size: 13px;
-    font-weight: 500;
-    padding: 6px 14px;
-    border-radius: 40px;
-    margin-bottom: 24px;
-}
+    .nav-buttons a:hover {
+      background-color: var(--gold);
+      color: var(--forest-green);
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    }
 
-.hero h1 {
-    font-size: 48px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    margin-bottom: 20px;
-    background: linear-gradient(135deg, var(--text) 0%, var(--primary) 100%);
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
+    /* Слайдер */
+    .slideshow-container {
+      max-width: 1000px;
+      position: relative;
+      margin: 40px auto;
+      overflow: hidden;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
 
-.hero p {
-    font-size: 18px;
-    color: var(--text-light);
-    margin-bottom: 32px;
-    max-width: 560px;
-    margin-left: auto;
-    margin-right: auto;
-}
+    .mySlides {
+      display: none;
+    }
 
-.hero-buttons {
-    display: flex;
-    gap: 16px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
+    .fade {
+      animation: fadeIn 1.5s ease-in-out;
+    }
 
-/* Статистика */
-.stats {
-    display: flex;
-    justify-content: center;
-    gap: 64px;
-    margin-bottom: 64px;
-    flex-wrap: wrap;
-    padding: 24px 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-}
+    @keyframes fadeIn {
+      from { opacity: 0.4; }
+      to { opacity: 1; }
+    }
 
-.stat-card {
-    text-align: center;
-}
+    .mySlides {
+      text-align: center;  /* Это центрирует содержимое по горизонтали */
+      background: linear-gradient(135deg, #006400 0%, #003300 100%);  /* ЗЕЛЁНЫЙ ГРАДИЕНТ */
+    }
+    
+    .mySlides img {
+      display: block !important;
+      width: 45% !important;
+      height: 300px !important;
+      object-fit: cover !important;
+      object-position: center !important;
+      margin: 0 auto !important;
+      border-radius: 15px !important;
+    }
+    .text {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 40, 0, 0.8);
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--gold);
+      font-family: 'Oswald', sans-serif;
+    }
 
-.stat-number {
-    font-size: 38px;
-    font-weight: 700;
-    color: var(--primary);
-    margin-bottom: 6px;
-}
+    /* Стрелки */
+    .prev, .next {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background-color: rgba(0, 40, 0, 0.8);
+      color: var(--gold);
+      border: none;
+      cursor: pointer;
+      padding: 15px 20px;
+      font-size: 18px;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      font-family: 'Oswald', sans-serif;
+    }
 
-.stat-label {
-    font-size: 14px;
-    color: var(--text-muted);
-}
+    .prev {
+      left: 10px;
+    }
 
-/* Секции */
-.section-header {
-    text-align: center;
-    margin-bottom: 40px;
-}
+    .next {
+      right: 10px;
+    }
 
-.section-tag {
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: var(--primary);
-    margin-bottom: 12px;
-}
+    .prev:hover, .next:hover {
+      background-color: var(--gold);
+      color: var(--forest-green);
+      transform: translateY(-50%) scale(1.1);
+    }
 
-.section-title {
-    font-size: 30px;
-    font-weight: 650;
-    letter-spacing: -0.02em;
-    color: var(--text);
-}
+    /* Точки навигации */
+    .dot-container {
+      text-align: center;
+      padding: 20px 0;
+    }
 
-/* Карточки заказов */
-.orders-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    margin-bottom: 64px;
-}
+    .dot {
+      cursor: pointer;
+      height: 15px;
+      width: 15px;
+      margin: 0 5px;
+      background-color: #bbb;
+      border-radius: 50%;
+      display: inline-block;
+      transition: background-color 0.3s ease;
+    }
 
-.order-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 20px 24px;
-    transition: var(--transition);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
-}
+    .dot.active, .dot:hover {
+      background-color: var(--gold);
+    }
 
-.order-card:hover {
-    border-color: var(--primary-light);
-    box-shadow: var(--shadow-md);
-}
+    /* Секция преимуществ */
+    .features-section {
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
 
-.order-info {
-    flex: 2;
-}
+    .features-title {
+      text-align: center;
+      color: var(--gold);
+      margin-bottom: 30px;
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-family: 'Oswald', sans-serif;
+    }
 
-.order-number {
-    font-weight: 600;
-    font-size: 16px;
-    margin-bottom: 6px;
-}
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+    }
 
-.order-number a {
-    color: var(--text);
-    text-decoration: none;
-}
+    .feature-card {
+      background: rgba(0, 40, 0, 0.8);
+      padding: 25px;
+      border-radius: 10px;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
 
-.order-number a:hover {
-    color: var(--primary);
-}
+    .feature-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--gold);
+    }
 
-.order-route {
-    font-size: 13px;
-    color: var(--text-muted);
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-}
+    .feature-card h3 {
+      color: var(--rose-gold);
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      margin-bottom: 15px;
+      font-family: 'Oswald', sans-serif;
+    }
 
-.order-status {
-    flex: 0 0 auto;
-}
+    .feature-card p {
+      color: var(--cream);
+      line-height: 1.5;
+      font-weight: 300;
+      font-size: 16px;
+      font-family: 'Oswald', sans-serif;
+    }
 
-.status {
-    display: inline-block;
-    padding: 5px 14px;
-    border-radius: 30px;
-    font-size: 12px;
-    font-weight: 500;
-}
+    /* Адаптивность */
+    @media (max-width: 768px) {
+      .nav {
+        flex-direction: column;
+        align-items: center;
+        padding: 10px 15px;
+        gap: 10px;
+      }
 
-.order-price {
-    font-weight: 600;
-    font-size: 18px;
-    color: var(--primary);
-    min-width: 100px;
-    text-align: right;
-}
+      .logo {
+        font-size: 20px;
+        text-align: center;
+      }
 
-.empty-state {
-    text-align: center;
-    padding: 48px 24px;
-    background: var(--bg-light);
-    border-radius: var(--radius-sm);
-}
+      .nav-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 100%;
+        gap: 8px;
+      }
 
-.empty-state-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
-    opacity: 0.5;
-}
+      .nav-buttons a {
+        padding: 8px 14px;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+    }
 
-/* Преимущества */
-.features {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 32px;
-    margin-bottom: 64px;
-}
+    /* Для очень маленьких телефонов (до 480px) */
+    @media (max-width: 480px) {
+      .nav {
+        padding: 8px 12px;
+        gap: 8px;
+      }
 
-.feature {
-    text-align: center;
-    padding: 32px 24px;
-    background: var(--bg-card);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-    transition: var(--transition);
-}
+      .logo {
+        font-size: 18px;
+      }
 
-.feature:hover {
-    transform: translateY(-4px);
-    border-color: var(--primary-light);
-    box-shadow: var(--shadow-lg);
-}
+      .nav-buttons {
+        flex-direction: column;
+        width: 100%;
+        gap: 6px;
+      }
 
-.feature-icon {
-    width: 60px;
-    height: 60px;
-    background: var(--primary-light);
-    border-radius: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-    margin: 0 auto 20px;
-}
+      .nav-buttons a {
+        display: block;
+        width: 100%;
+        text-align: center;
+        padding: 8px 12px;
+        font-size: 14px;
+        white-space: normal;
+      }
+    }
+  </style>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+<!-- Шапка сайта -->
+<header class="header">
+  <div class="nav">
+    <a href="index.php" class="logo">🍽️ Банкетам.Нет</a>
 
-.feature h3 {
-    font-size: 18px;
-    font-weight: 600;
-    margin-bottom: 8px;
-}
-
-.feature p {
-    color: var(--text-light);
-    font-size: 14px;
-}
-
-/* Кнопки */
-.btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 11px 28px;
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-    border-radius: 40px;
-    transition: var(--transition);
-    cursor: pointer;
-    border: none;
-    font-family: inherit;
-}
-
-.btn-primary {
-    background: var(--primary);
-    color: white;
-    box-shadow: 0 2px 8px rgba(0,87,179,0.2);
-}
-
-.btn-primary:hover {
-    background: var(--primary-dark);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0,87,179,0.25);
-}
-
-.btn-outline {
-    background: transparent;
-    color: var(--primary);
-    border: 1.5px solid var(--primary);
-}
-
-.btn-outline:hover {
-    background: var(--primary-light);
-    transform: translateY(-2px);
-}
-
-.btn-secondary {
-    background: var(--bg-light);
-    color: var(--text);
-    border: 1px solid var(--border);
-}
-
-.btn-secondary:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-}
-
-/* Анимации */
-@keyframes fadeUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.hero, .stats, .orders-list, .features {
-    animation: fadeUp 0.4s ease-out forwards;
-}
-
-/* Адаптив */
-@media (max-width: 768px) {
-    .container { padding: 0 20px; }
-    .hero { padding: 40px 20px; margin-bottom: 40px; }
-    .hero h1 { font-size: 32px; }
-    .hero p { font-size: 16px; }
-    .section-title { font-size: 24px; }
-    .stats { gap: 32px; margin-bottom: 48px; }
-    .features { grid-template-columns: 1fr; gap: 20px; margin-bottom: 48px; }
-    .order-card { flex-direction: column; align-items: flex-start; }
-    .order-price { text-align: left; }
-}
-</style>
-
-<section class="hero">
-    <div class="hero-badge">
-        <span>✦</span> Управление заказами
+    <!-- Кнопки навигации -->
+    <div class="nav-buttons">
+      <?php if (!isset($_SESSION['user_id'])): ?>
+        <a href="login.php" class="btn-login">🔐 Войти</a>
+        <a href="register.php" class="btn-register">📝 Регистрация</a>
+      <?php elseif ($is_admin): ?>
+        <a href="admin.php" class="btn-admin">👑 Панель администратора</a>
+        <a href="?logout=1" class="btn-exit">🚪 Выход</a>
+      <?php elseif (isset($_SESSION['user_id'])): ?>
+        <a href="history.php" class="btn-lk">📋 Мои заявки</a>
+        <a href="create.php" class="btn-create">🎉 Новая заявка</a>
+        <a href="?logout=1" class="btn-exit">🚪 Выход</a>
+      <?php endif; ?>
     </div>
-    <h1>ООО «Наталья»<br>грузоперевозки по всей России</h1>
-    <p>Оформляйте заказы онлайн, отслеживайте статус в реальном времени</p>
-    <div class="hero-buttons">
-        <a href="create_order.php" class="btn btn-primary">📦 Оформить заказ</a>
-        <?php if (!isLoggedIn()): ?>
-            <a href="login.php" class="btn btn-outline">🔐 Войти в личный кабинет</a>
-        <?php else: ?>
-            <a href="orders.php" class="btn btn-outline">📋 Мои заказы</a>
-        <?php endif; ?>
+  </div>
+</header>
+
+<!-- Слайдер с картинками для банкетных площадок -->
+<div class="mySlides fade">
+  <img src="images/banquet.jpg" alt="Банкетный зал">
+  <div class="text">🏛️ Просторный банкетный зал</div>
+</div>
+
+<div class="mySlides fade">
+  <img src="images/banquet2.jpg" alt="Ресторан для банкета">
+  <div class="text">🍷 Изысканный ресторан</div>
+</div>
+
+<div class="mySlides fade">
+  <img src="images/banquet3.jpg" alt="Летняя веранда">
+  <div class="text">🌞 Уютная летняя веранда</div>
+</div>
+
+<div class="mySlides fade">
+  <img src="images/banquet4.jpg" alt="Закрытая веранда">
+  <div class="text">🏠 Тёплая закрытая веранда</div>
+</div>
+
+<!-- Точки навигации -->
+<div class="dot-container">
+  <span class="dot" onclick="currentSlide(1)"></span>
+  <span class="dot" onclick="currentSlide(2)"></span>
+  <span class="dot" onclick="currentSlide(3)"></span>
+  <span class="dot" onclick="currentSlide(4)"></span>
+</div>
+
+<!-- Основной контент -->
+<section class="features-section">
+  <h2 class="features-title">✨ Почему выбирают «Банкетам.Нет»?</h2>
+  
+  <div class="features-grid">
+    <div class="feature-card">
+      <h3>🏛️ Лучшие залы и рестораны</h3>
+      <p>Подберём идеальное место для вашего торжества — от камерных залов до больших ресторанов.</p>
     </div>
+    
+    <div class="feature-card">
+      <h3>🌿 Летние и закрытые веранды</h3>
+      <p>Организуем банкет на свежем воздухе или в уютной закрытой веранде в любое время года.</p>
+    </div>
+    
+    <div class="feature-card">
+      <h3>🤝 Помощь с выбором</h3>
+      <p>Наши менеджеры помогут выбрать помещение под любой бюджет и количество гостей.</p>
+    </div>
+  </div>
 </section>
 
-<div class="stats">
-    <div class="stat-card"><div class="stat-number"><?= number_format($totalOrders, 0, ',', ' ') ?></div><div class="stat-label">всего заказов</div></div>
-    <div class="stat-card"><div class="stat-number"><?= $activeOrders ?></div><div class="stat-label">в работе</div></div>
-    <div class="stat-card"><div class="stat-number"><?= $completedOrders ?></div><div class="stat-label">доставлено</div></div>
-    <div class="stat-card"><div class="stat-number"><?= number_format($totalVehicles, 0, ',', ' ') ?></div><div class="stat-label">единиц техники</div></div>
-</div>
+<script>
+// JavaScript для управления слайдером
+let slideIndex = 1;
+showSlides(slideIndex);
 
-<?php if (isLoggedIn() && !empty($recentOrders)): ?>
-<div class="section-header">
-    <div class="section-tag">Последние заказы</div>
-    <div class="section-title">Ваши <span style="color: var(--primary);">последние заявки</span></div>
-</div>
-<div class="orders-list">
-    <?php foreach ($recentOrders as $o): ?>
-    <div class="order-card">
-        <div class="order-info">
-            <div class="order-number">
-                <a href="order.php?id=<?= $o['id'] ?>">Заказ №<?= $o['id'] ?></a>
-            </div>
-            <div class="order-route">
-                <span>📍 <?= esc($o['address_from']) ?></span>
-                <span>→</span>
-                <span>🎯 <?= esc($o['address_to']) ?></span>
-            </div>
-        </div>
-        <div class="order-status">
-            <span class="status" style="color: <?= $statuses[$o['status']]['color'] ?>; background: <?= $statuses[$o['status']]['bg'] ?>;">
-                <?= $statuses[$o['status']]['label'] ?>
-            </span>
-        </div>
-        <div class="order-price"><?= number_format($o['total_price'], 0, ',', ' ') ?> ₽</div>
-    </div>
-    <?php endforeach; ?>
-</div>
-<div style="text-align: center; margin-bottom: 48px;">
-    <a href="orders.php" class="btn btn-outline">Смотреть все заказы →</a>
-</div>
-<?php elseif (isLoggedIn()): ?>
-<div class="empty-state" style="margin-bottom: 48px;">
-    <div class="empty-state-icon">📭</div>
-    <p style="margin-bottom: 16px; color: var(--text-muted);">У вас пока нет заказов</p>
-    <a href="create_order.php" class="btn btn-primary">Оформить первый заказ</a>
-</div>
-<?php endif; ?>
+function plusSlides(n) {
+  showSlides(slideIndex += n);
+}
 
-<div class="section-header">
-    <div class="section-tag">Преимущества</div>
-    <div class="section-title">Почему выбирают <span style="color: var(--primary);">нас</span></div>
-</div>
-<div class="features">
-    <div class="feature">
-        <div class="feature-icon">⚡</div>
-        <h3>Быстрое оформление</h3>
-        <p>Оформите заказ за 2 минуты без лишних звонков</p>
-    </div>
-    <div class="feature">
-        <div class="feature-icon">📊</div>
-        <h3>Отслеживание статуса</h3>
-        <p>Всегда знайте, где находится ваш груз</p>
-    </div>
-    <div class="feature">
-        <div class="feature-icon">📋</div>
-        <h3>Прозрачная отчётность</h3>
-        <p>История заказов и полная информация по каждой перевозке</p>
-    </div>
-</div>
+function currentSlide(n) {
+  showSlides(slideIndex = n);
+}
 
-<?php require 'includes/footer.php'; ?>
+function showSlides(n) {
+  let i;
+  let slides = document.getElementsByClassName("mySlides");
+  let dots = document.getElementsByClassName("dot");
+
+  if (n > slides.length) { slideIndex = 1 }
+  if (n < 1) { slideIndex = slides.length }
+
+  for (i = 0; i < slides.length; i++) {
+    slides[i].style.display = "none";
+  }
+  for (i = 0; i < dots.length; i++) {
+    dots[i].className = dots[i].className.replace(" active", "");
+  }
+
+  slides[slideIndex-1].style.display = "block";
+  dots[slideIndex-1].className += " active";
+}
+
+// Автоматическое переключение слайдов каждые 3 секунды
+let slideInterval = setInterval(function() {
+  plusSlides(1);
+}, 3000);
+
+// Останавливаем автоматическое переключение при наведении на слайдер
+const slideshowContainer = document.querySelector('.slideshow-container');
+if (slideshowContainer) {
+  slideshowContainer.addEventListener('mouseenter', function() {
+    clearInterval(slideInterval);
+  });
+  
+  slideshowContainer.addEventListener('mouseleave', function() {
+    slideInterval = setInterval(function() {
+      plusSlides(1);
+    }, 3000);
+  });
+}
+</script>
+</body>
+</html>
