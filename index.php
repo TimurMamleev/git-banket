@@ -40,7 +40,7 @@ $is_admin = isset($_SESSION['admin']) && $_SESSION['admin'];
 
     /* Шапка сайта */
     .header {
-      background: rgba(0, 40, 0, 0.95);
+      background: rgba(1, 122, 1, 0.95);
       padding: 15px 0;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
       position: sticky;
@@ -123,7 +123,7 @@ $is_admin = isset($_SESSION['admin']) && $_SESSION['admin'];
     
     .mySlides img {
       display: block !important;
-      width: 45% !important;
+      width: 55% !important;
       height: 300px !important;
       object-fit: cover !important;
       object-position: center !important;
